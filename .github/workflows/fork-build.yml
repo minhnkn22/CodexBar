@@ -1,0 +1,54 @@
+name: Fork app build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: fork-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-test-and-package:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Select Xcode 26.3 or 26.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          for candidate in /Applications/Xcode_26.3.app /Applications/Xcode_26.2.app; do
+            if [[ -d "$candidate" ]]; then
+              sudo xcode-select -s "${candidate}/Contents/Developer"
+              echo "DEVELOPER_DIR=${candidate}/Contents/Developer" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+          [[ "$(/usr/bin/xcodebuild -version)" == Xcode\ 26.* ]]
+          /usr/bin/xcodebuild -version
+          swift --version
+
+      - name: Test refresh request context
+        run: swift test --filter ProviderRefreshRequestContextTests
+
+      - name: Test Claude delegated refresh epoch
+        run: swift test --filter ClaudeOAuthDelegatedRefreshEpochTests
+
+      - name: Package ad-hoc app
+        env:
+          CODEXBAR_SIGNING: adhoc
+        run: ./Scripts/package_app.sh release
+
+      - name: Archive app
+        run: ditto -c -k --keepParent CodexBar.app CodexBar-fork.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: CodexBar-fork-macos
+          path: CodexBar-fork.zip
+          if-no-files-found: error
+          retention-days: 7
