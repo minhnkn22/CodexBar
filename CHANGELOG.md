@@ -6,6 +6,8 @@
 - Fireworks: track 30-day rated billing spend with an API key and account slug (#2687). Thanks @x0mh0x!
 
 ### Fixed
+- Claude: avoid a nested refresh TaskLocal binding during post-delegation credential reloads, preventing a Sonoma 14.4
+  `swift_task_dealloc` abort while preserving the fresh Keychain-prompt coalescing epoch.
 - PTY probes: abort output-overflow children through a bounded process-group kill path, avoiding minute-long cleanup stalls under load (refs #2792).
 - Cost store: give the store actor's custom serial executor an `isIsolatingCurrentContext()` implementation — macOS 26+ runtimes consult it before `checkIsolated()`, and its default cannot see through `DispatchQueue.sync`, so every synchronous store bridge tripped "Incorrect actor executor assumption" and the app died on launch.
 - Codex: reject Standard/Fast pricing rows that exceed canonical fork-deduplicated usage, preventing copied fork rows and their Fast surcharge from inflating cost estimates (#2754). Thanks @1328189205 for the report and @Yuxin-Qiao for the initial fix and regression-test approach!
