@@ -5,11 +5,16 @@ import Testing
 @Suite(.serialized)
 struct ClaudeOAuthDelegatedRefreshEpochTests {
     private actor LoadState {
+        private var callCount = 0
         private var requestIDs: [UUID?] = []
 
-        func nextCall(requestID: UUID?) -> Int {
+        func nextCall() -> Int {
+            self.callCount += 1
+            return self.callCount
+        }
+
+        func record(requestID: UUID?) {
             self.requestIDs.append(requestID)
-            return self.requestIDs.count
         }
 
         func recordedRequestIDs() -> [UUID?] {
@@ -37,7 +42,7 @@ struct ClaudeOAuthDelegatedRefreshEpochTests {
             [String: String],
             Bool,
             Bool) async throws -> ClaudeOAuthCredentials)? = { _, _, _ in
-            let call = await state.nextCall(requestID: ProviderRefreshRequestContext.id)
+            let call = await state.nextCall()
             guard call > 1 else {
                 throw ClaudeOAuthCredentialsError.refreshDelegatedToClaudeCLI
             }
@@ -57,21 +62,26 @@ struct ClaudeOAuthDelegatedRefreshEpochTests {
         let fetchOverride: (@Sendable (String, Bool) async throws -> OAuthUsageResponse)? = { _, _ in
             usageResponse
         }
+        let scopeObserver: (@Sendable (UUID?) async -> Void)? = { requestID in
+            await state.record(requestID: requestID)
+        }
 
         _ = try await ClaudeOAuthKeychainPromptPreference.withTaskOverrideForTesting(.onlyOnUserAction) {
             try await ProviderInteractionContext.$current.withValue(.userInitiated) {
                 try await ProviderRefreshRequestContext.$id.withValue(initialRequestID) {
-                    try await ClaudeUsageFetcher.$fetchOAuthUsageOverride.withValue(fetchOverride, operation: {
-                        try await ClaudeUsageFetcher.$delegatedRefreshAttemptOverride.withValue(
-                            delegatedOverride,
-                            operation: {
-                                try await ClaudeUsageFetcher.$loadOAuthCredentialsOverride.withValue(
-                                    loadOverride,
-                                    operation: {
-                                        try await fetcher.loadLatestUsage(model: "sonnet")
-                                    })
-                            })
-                    })
+                    try await ClaudeUsageFetcher.$promptAttemptScopeObserver.withValue(scopeObserver) {
+                        try await ClaudeUsageFetcher.$fetchOAuthUsageOverride.withValue(fetchOverride, operation: {
+                            try await ClaudeUsageFetcher.$delegatedRefreshAttemptOverride.withValue(
+                                delegatedOverride,
+                                operation: {
+                                    try await ClaudeUsageFetcher.$loadOAuthCredentialsOverride.withValue(
+                                        loadOverride,
+                                        operation: {
+                                            try await fetcher.loadLatestUsage(model: "sonnet")
+                                        })
+                                })
+                        })
+                    }
                 }
             }
         }

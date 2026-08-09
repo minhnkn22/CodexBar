@@ -276,6 +276,12 @@ public enum ClaudeOAuthCredentialsStore {
 
     private struct Repository {
         let context: CollaboratorContext
+        let promptAttemptScopeID: UUID?
+
+        init(context: CollaboratorContext, promptAttemptScopeID: UUID? = nil) {
+            self.context = context
+            self.promptAttemptScopeID = promptAttemptScopeID
+        }
 
         func load(environment: [String: String], allowKeychainPrompt: Bool, respectKeychainPromptCooldown: Bool) throws
             -> ClaudeOAuthCredentials
@@ -485,7 +491,7 @@ public enum ClaudeOAuthCredentialsStore {
             let profileIdentifier = ClaudeOAuthCredentialsStore.credentialsProfileIdentifier(
                 environment: environment)
             _ = self.invalidateCacheIfCredentialsFileChanged(environment: environment)
-            guard let requestID = ProviderRefreshRequestContext.id,
+            guard let requestID = self.promptAttemptScopeID ?? ProviderRefreshRequestContext.id,
                   let outcome = ClaudeOAuthCredentialsStore.readPromptAttemptOutcome(),
                   outcome.requestID == requestID,
                   outcome.profileIdentifier == profileIdentifier,
@@ -512,7 +518,7 @@ public enum ClaudeOAuthCredentialsStore {
             let profileIdentifier = ClaudeOAuthCredentialsStore.credentialsProfileIdentifier(
                 environment: environment)
             let promptGeneration = ClaudeOAuthKeychainAccessGate.promptAttemptGeneration()
-            let refreshRequestID = ProviderRefreshRequestContext.id
+            let refreshRequestID = self.promptAttemptScopeID ?? ProviderRefreshRequestContext.id
             #if DEBUG
             ClaudeOAuthCredentialsStore.taskBeforeClaudeKeychainPromptLockOverride?()
             #endif
@@ -1571,10 +1577,11 @@ public enum ClaudeOAuthCredentialsStore {
         allowKeychainPrompt: Bool = true,
         respectKeychainPromptCooldown: Bool = false,
         allowClaudeKeychainRepairWithoutPrompt: Bool = true,
-        clearInvalidCache: Bool = true) async throws -> ClaudeOAuthCredentialRecord
+        clearInvalidCache: Bool = true,
+        promptAttemptScopeID: UUID? = nil) async throws -> ClaudeOAuthCredentialRecord
     {
         let context = self.currentCollaboratorContext()
-        let repository = Repository(context: context)
+        let repository = Repository(context: context, promptAttemptScopeID: promptAttemptScopeID)
         let refresher = Refresher(
             context: context,
             profileIdentifier: self.credentialsProfileIdentifier(environment: environment),

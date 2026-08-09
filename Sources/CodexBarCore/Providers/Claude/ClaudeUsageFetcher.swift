@@ -265,6 +265,7 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         [String: String],
         Bool,
         Bool) async throws -> ClaudeOAuthCredentials)?
+    @TaskLocal static var promptAttemptScopeObserver: (@Sendable (UUID?) async -> Void)?
     @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (
         String,
         Bool) async throws -> OAuthUsageResponse)?
@@ -457,14 +458,17 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
                         ])
                 }
 
-                let refreshedRecord = try await ProviderRefreshRequestContext.withNewRequest {
-                    try await ClaudeUsageFetcher.loadOAuthCredentialRecord(
-                        environment: self.fetcher.environment,
-                        allowKeychainPrompt: retryAllowKeychainPrompt,
-                        respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown,
-                        safeCredentialSourcesOnly: self.fetcher.oauthSafeCredentialSourcesOnly,
-                        clearInvalidCache: !self.fetcher.preserveInvalidOAuthCache)
-                }
+                // Keep the retry epoch explicit. Adding another credential load in this block must
+                // thread the same ID rather than nesting ProviderRefreshRequestContext again; nested
+                // TaskLocal binding can corrupt task allocation on the macOS 14 backdeployment runtime.
+                let retryPromptAttemptScopeID = UUID()
+                let refreshedRecord = try await ClaudeUsageFetcher.loadOAuthCredentialRecord(
+                    environment: self.fetcher.environment,
+                    allowKeychainPrompt: retryAllowKeychainPrompt,
+                    respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown,
+                    safeCredentialSourcesOnly: self.fetcher.oauthSafeCredentialSourcesOnly,
+                    clearInvalidCache: !self.fetcher.preserveInvalidOAuthCache,
+                    promptAttemptScopeID: retryPromptAttemptScopeID)
                 let refreshedCredentials = refreshedRecord.credentials
                 if ClaudeUsageFetcher.isClaudeOAuthFlowDebugEnabled {
                     ClaudeUsageFetcher.log.debug(
@@ -903,9 +907,11 @@ extension ClaudeUsageFetcher {
         allowKeychainPrompt: Bool,
         respectKeychainPromptCooldown: Bool,
         safeCredentialSourcesOnly: Bool,
-        clearInvalidCache: Bool) async throws -> ClaudeOAuthCredentialRecord
+        clearInvalidCache: Bool,
+        promptAttemptScopeID: UUID? = nil) async throws -> ClaudeOAuthCredentialRecord
     {
         #if DEBUG
+        await self.promptAttemptScopeObserver?(promptAttemptScopeID ?? ProviderRefreshRequestContext.id)
         if let override = loadOAuthCredentialsOverride {
             return try await ClaudeOAuthCredentialRecord(
                 credentials: override(environment, allowKeychainPrompt, respectKeychainPromptCooldown),
@@ -920,7 +926,8 @@ extension ClaudeUsageFetcher {
             allowClaudeKeychainRepairWithoutPrompt: !safeCredentialSourcesOnly,
             // Explicit OAuth is an authority boundary. Retain malformed safe credentials so a
             // retry remains terminal instead of turning corruption into ambient CLI fallback.
-            clearInvalidCache: clearInvalidCache)
+            clearInvalidCache: clearInvalidCache,
+            promptAttemptScopeID: promptAttemptScopeID)
     }
 
     private static func fetchOAuthUsage(
