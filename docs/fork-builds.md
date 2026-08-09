@@ -7,8 +7,8 @@ read_when:
 
 # Fork app builds
 
-The **Fork app build** workflow compiles with Xcode 26, runs the refresh-context and Claude delegated-refresh tests,
-packages an ad-hoc signed `CodexBar.app`, and uploads `CodexBar-fork-macos` for seven days.
+The **Fork app build** workflow compiles with Xcode 26, runs the refresh-context, Claude delegated-refresh, and Claude
+prompt-coalescing tests, packages an ad-hoc signed `CodexBar.app`, and uploads `CodexBar-fork-macos` for seven days.
 
 It runs for fork pull requests and can also be started manually from GitHub Actions. The artifact is for local testing,
 not distribution: it has no Developer ID signature, notarization, Sparkle release metadata, or update channel.
