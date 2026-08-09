@@ -40,6 +40,9 @@ jobs:
       - name: Test Claude prompt coalescing
         run: swift test --filter ClaudeOAuthPromptCoalescingTests
 
+      - name: Test cost store actor bridge
+        run: swift test --filter CostUsageStoreTests
+
       - name: Package ad-hoc app
         env:
           CODEXBAR_SIGNING: adhoc

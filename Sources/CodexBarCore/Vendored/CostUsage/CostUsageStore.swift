@@ -40,9 +40,20 @@ actor CostUsageStore {
         func isIsolatingCurrentContext() -> Bool? {
             DispatchQueue.getSpecific(key: Self.queueKey) == ObjectIdentifier(self)
         }
+    }
 
-        func sync<T>(_ operation: () throws -> T) rethrows -> T {
-            try self.queue.sync(execute: operation)
+    private final class BlockingResult<Value: Sendable>: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var value: Value?
+
+        func complete(with value: consuming Value) {
+            self.value = value
+            self.semaphore.signal()
+        }
+
+        func wait() -> Value {
+            self.semaphore.wait()
+            return self.value!
         }
     }
 
@@ -124,11 +135,12 @@ actor CostUsageStore {
 
 extension CostUsageStore {
     nonisolated func syncLoadCodexCache(calendar: Calendar) -> CostUsageCache {
-        Self.sharedExecutor.sync {
-            self.assumeIsolated { store in
-                store.loadCodexCache(calendar: calendar)
-            }
+        let result = BlockingResult<CostUsageCache>()
+        Task.detached { [self] in
+            let value = await self.loadCodexCache(calendar: calendar)
+            result.complete(with: value)
         }
+        return result.wait()
     }
 
     nonisolated func syncSaveCodexCache(
@@ -139,17 +151,18 @@ extension CostUsageStore {
         rowBudget: Int = CostUsageStore.defaultRowBudget,
         fileBudgetBytes: Int64 = CostUsageStore.defaultFileBudgetBytes) -> CostUsageStoreBudgetResult
     {
-        Self.sharedExecutor.sync {
-            self.assumeIsolated { store in
-                store.saveCodexCache(
-                    cache,
-                    calendar: calendar,
-                    requestedScanWindow: requestedScanWindow,
-                    reportWindow: reportWindow,
-                    rowBudget: rowBudget,
-                    fileBudgetBytes: fileBudgetBytes)
-            }
+        let result = BlockingResult<CostUsageStoreBudgetResult>()
+        Task.detached { [self] in
+            let value = await self.saveCodexCache(
+                cache,
+                calendar: calendar,
+                requestedScanWindow: requestedScanWindow,
+                reportWindow: reportWindow,
+                rowBudget: rowBudget,
+                fileBudgetBytes: fileBudgetBytes)
+            result.complete(with: value)
         }
+        return result.wait()
     }
 }
 

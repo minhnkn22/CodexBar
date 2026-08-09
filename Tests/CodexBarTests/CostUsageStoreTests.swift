@@ -9,18 +9,10 @@ import CSQLite3
 #endif
 
 struct CostUsageStoreTests {
-    /// The store actor runs on a custom DispatchQueue-backed `SerialExecutor`, and its
-    /// `sync*` bridges call `assumeIsolated` from inside `queue.sync`. macOS 26+ runtimes
-    /// verify that through `SerialExecutor.isIsolatingCurrentContext()`, whose default
-    /// implementation cannot see through `DispatchQueue.sync` — without an explicit
-    /// implementation the bridge traps ("Incorrect actor executor assumption") and the app
-    /// dies on launch.
-    ///
-    /// This covers the bridges from a non-actor thread. Note it does not by itself
-    /// reproduce the trap: whether `assumeIsolated` traps depends on the calling context's
-    /// current executor, and no test-harness context reproduced it (plain thread, Task, and
-    /// MainActor were all tried). The regression was verified against the app itself —
-    /// it died on launch with "Incorrect actor executor assumption" and starts cleanly now.
+    /// The synchronous scanner still needs to cross into the store actor, but doing that via
+    /// `assumeIsolated` depends on runtime-specific custom-executor checks. Sonoma 14.4 traps
+    /// that bridge even while its DispatchQueue is current. The bridge now schedules a real
+    /// actor call and blocks only the external scanner thread until the result arrives.
     @Test
     func `sync bridges are callable from a plain thread`() throws {
         let fixture = try StoreFixture()
@@ -49,6 +41,19 @@ struct CostUsageStoreTests {
         #expect(finished.wait(timeout: .now() + 10) == .success)
         #expect(outcome.loadedScanStamp == 0)
         #expect((outcome.savedRowCount ?? -1) >= 0)
+    }
+
+    @Test
+    func `sync bridges cross the executor from a detached task`() async throws {
+        let fixture = try StoreFixture()
+        defer { fixture.remove() }
+        let store = CostUsageStore(cacheRoot: fixture.root)
+
+        let loaded = await Task.detached {
+            store.syncLoadCodexCache(calendar: .current)
+        }.value
+
+        #expect(loaded.lastScanUnixMs == 0)
     }
 
     @Test

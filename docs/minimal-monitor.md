@@ -97,5 +97,10 @@ Acceptance requires:
   refresh path;
 - no fresh `CodexBar-*.ips` report and no `swift_task_dealloc` abort after repeated refreshes.
 
+The first 0.49 fork soak also exposed an independent Sonoma launch trap in the new SQLite cost store's synchronous
+scanner bridge. Sonoma could not validate `assumeIsolated` for the store's custom serial executor even while its queue
+was current. The bridge now schedules an actual actor-isolated operation and blocks only the external scanner thread
+until it completes; it no longer relies on runtime-specific executor introspection.
+
 The crash fix is suitable for upstream contribution. The minimal layout and provider-routing policy should stay as
 configuration/documentation unless repeated use shows that a dedicated UI preset or CLI policy command is warranted.

@@ -6,6 +6,8 @@
 - Fireworks: track 30-day rated billing spend with an API key and account slug (#2687). Thanks @x0mh0x!
 
 ### Fixed
+- Cost store: cross the synchronous scanner boundary with a real awaited actor call instead of `assumeIsolated`,
+  preventing a Sonoma 14.4 launch-time "Incorrect actor executor assumption" trap.
 - Claude: avoid a nested refresh TaskLocal binding during post-delegation credential reloads, preventing a Sonoma 14.4
   `swift_task_dealloc` abort while keeping stale prompt failures out of the fresh retry epoch.
 - PTY probes: abort output-overflow children through a bounded process-group kill path, avoiding minute-long cleanup stalls under load (refs #2792).
