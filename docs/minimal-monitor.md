@@ -79,10 +79,11 @@ Two CodexBar 0.48.1 crash reports from macOS 14.4.1 arm64 symbolicate to
 `swift_task_dealloc`.
 
 The initial provider refresh still establishes one request scope. The post-delegation retry no longer nests a second
-TaskLocal binding inside the provider fetch child task; it passes a fresh prompt-coalescing UUID directly into the
+TaskLocal binding inside the provider fetch child task; it passes a fresh prompt-attempt UUID directly into the
 credential repository instead. The ID is process-local, is never persisted or sent to providers, and cannot match the
-pre-delegation prompt result. Removing the nested scope avoids the allocator-order abort on the macOS 14 Swift
-concurrency backdeployment runtime while preserving the fresh retry epoch.
+pre-delegation prompt result. Because this retry never permits a Keychain prompt, the fresh ID specifically prevents a
+stale failure from the pre-delegation attempt from being replayed. Removing the nested scope avoids the allocator-order
+abort on the macOS 14 Swift concurrency backdeployment runtime while preserving the fresh retry epoch.
 
 The repository initializer defaults this explicit scope to `nil`, so every existing credential-load caller continues
 to inherit the outer refresh request ID. Only the post-delegation retry supplies a fresh ID.

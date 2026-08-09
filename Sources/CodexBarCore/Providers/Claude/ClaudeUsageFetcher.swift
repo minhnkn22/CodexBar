@@ -458,13 +458,17 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
                         ])
                 }
 
+                // Keep the retry epoch explicit. Adding another credential load in this block must
+                // thread the same ID rather than nesting ProviderRefreshRequestContext again; nested
+                // TaskLocal binding can corrupt task allocation on the macOS 14 backdeployment runtime.
+                let retryPromptAttemptScopeID = UUID()
                 let refreshedRecord = try await ClaudeUsageFetcher.loadOAuthCredentialRecord(
                     environment: self.fetcher.environment,
                     allowKeychainPrompt: retryAllowKeychainPrompt,
                     respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown,
                     safeCredentialSourcesOnly: self.fetcher.oauthSafeCredentialSourcesOnly,
                     clearInvalidCache: !self.fetcher.preserveInvalidOAuthCache,
-                    promptAttemptScopeID: UUID())
+                    promptAttemptScopeID: retryPromptAttemptScopeID)
                 let refreshedCredentials = refreshedRecord.credentials
                 if ClaudeUsageFetcher.isClaudeOAuthFlowDebugEnabled {
                     ClaudeUsageFetcher.log.debug(

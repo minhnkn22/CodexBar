@@ -129,6 +129,40 @@ struct ClaudeOAuthPromptCoalescingTests {
     }
 
     @Test
+    func `explicit prompt attempt scope does not replay an ambient request failure`() async throws {
+        let state = ConcurrentPromptReadState()
+        let deniedStore = ClaudeOAuthKeychainAccessGate.DeniedUntilStore()
+        let status = Int(errSecUserCanceled)
+        let ambientRequestID = UUID()
+
+        let outcomes = try await self.withPromptEnvironment(
+            state: state,
+            deniedStore: deniedStore,
+            read: {
+                try state.beginRead()
+                ClaudeOAuthKeychainAccessGate.recordDenied()
+                throw ClaudeOAuthCredentialsError.keychainError(status)
+            },
+            operation: { loadRecord in
+                await ProviderRefreshRequestContext.$id.withValue(ambientRequestID) {
+                    async let first = self.loadOutcome(using: loadRecord)
+                    async let second = self.loadOutcome(using: loadRecord)
+                    let seeded = await (first, second)
+                    let inherited = await self.loadAutoRefreshOutcome(promptAttemptScopeID: nil)
+                    let explicit = await self.loadAutoRefreshOutcome(promptAttemptScopeID: UUID())
+                    return (seeded.0, seeded.1, inherited, explicit)
+                }
+            })
+
+        let expected = LoadOutcome.keychainError(status)
+        #expect(outcomes.0 == expected)
+        #expect(outcomes.1 == expected)
+        #expect(outcomes.2 == expected)
+        #expect(outcomes.3 == .notFound)
+        #expect(state.readCount == 1)
+    }
+
+    @Test
     func `credential invalidation starts a fresh prompt outcome generation`() async throws {
         let state = ConcurrentPromptReadState()
         let deniedStore = ClaudeOAuthKeychainAccessGate.DeniedUntilStore()
@@ -265,6 +299,28 @@ struct ClaudeOAuthPromptCoalescingTests {
     {
         do {
             _ = try loadRecord()
+            return .unexpected("record")
+        } catch let error as ClaudeOAuthCredentialsError {
+            if case let .keychainError(status) = error {
+                return .keychainError(status)
+            }
+            if case .notFound = error {
+                return .notFound
+            }
+            return .unexpected(String(describing: error))
+        } catch {
+            return .unexpected(String(reflecting: type(of: error)))
+        }
+    }
+
+    private func loadAutoRefreshOutcome(promptAttemptScopeID: UUID?) async -> LoadOutcome {
+        do {
+            _ = try await ClaudeOAuthCredentialsStore.loadRecordWithAutoRefresh(
+                environment: [:],
+                allowKeychainPrompt: false,
+                respectKeychainPromptCooldown: true,
+                allowClaudeKeychainRepairWithoutPrompt: false,
+                promptAttemptScopeID: promptAttemptScopeID)
             return .unexpected("record")
         } catch let error as ClaudeOAuthCredentialsError {
             if case let .keychainError(status) = error {
