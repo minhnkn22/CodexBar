@@ -276,7 +276,12 @@ public enum ClaudeOAuthCredentialsStore {
 
     private struct Repository {
         let context: CollaboratorContext
-        let promptAttemptScopeID: UUID? = nil
+        let promptAttemptScopeID: UUID?
+
+        init(context: CollaboratorContext, promptAttemptScopeID: UUID? = nil) {
+            self.context = context
+            self.promptAttemptScopeID = promptAttemptScopeID
+        }
 
         func load(environment: [String: String], allowKeychainPrompt: Bool, respectKeychainPromptCooldown: Bool) throws
             -> ClaudeOAuthCredentials

@@ -84,6 +84,9 @@ credential repository instead. The ID is process-local, is never persisted or se
 pre-delegation prompt result. Removing the nested scope avoids the allocator-order abort on the macOS 14 Swift
 concurrency backdeployment runtime while preserving the fresh retry epoch.
 
+The repository initializer defaults this explicit scope to `nil`, so every existing credential-load caller continues
+to inherit the outer refresh request ID. Only the post-delegation retry supplies a fresh ID.
+
 Acceptance requires:
 
 - focused request-context and Claude delegated-refresh tests;
