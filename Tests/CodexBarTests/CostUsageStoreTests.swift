@@ -13,7 +13,7 @@ struct CostUsageStoreTests {
     /// `assumeIsolated` depends on runtime-specific custom-executor checks. Sonoma 14.4 traps
     /// that bridge even while its DispatchQueue is current. The bridge now schedules a real
     /// actor call and blocks only the external scanner thread until the result arrives.
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func `sync bridges are callable from a plain thread`() throws {
         let fixture = try StoreFixture()
         defer { fixture.remove() }
@@ -43,17 +43,28 @@ struct CostUsageStoreTests {
         #expect((outcome.savedRowCount ?? -1) >= 0)
     }
 
-    @Test
-    func `sync bridges cross the executor from a detached task`() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func `sync bridges make progress from concurrent cooperative tasks`() async throws {
         let fixture = try StoreFixture()
         defer { fixture.remove() }
         let store = CostUsageStore(cacheRoot: fixture.root)
+        let callerCount = ProcessInfo.processInfo.activeProcessorCount + 2
 
-        let loaded = await Task.detached {
-            store.syncLoadCodexCache(calendar: .current)
-        }.value
+        let stamps = await withTaskGroup(of: Int64.self, returning: [Int64].self) { group in
+            for _ in 0..<callerCount {
+                group.addTask {
+                    store.syncLoadCodexCache(calendar: .current).lastScanUnixMs
+                }
+            }
+            var values: [Int64] = []
+            for await value in group {
+                values.append(value)
+            }
+            return values
+        }
 
-        #expect(loaded.lastScanUnixMs == 0)
+        #expect(stamps.count == callerCount)
+        #expect(stamps.allSatisfy { $0 == 0 })
     }
 
     @Test
