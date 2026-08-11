@@ -365,7 +365,7 @@ struct StatusMenuSwitcherClickTests {
     }
 
     @Test
-    func `merged switcher switches provider while overview chart submenu is open`() async throws {
+    func `merged switcher switches provider from compact overview`() async throws {
         let previousMenuCardRendering = StatusItemController.menuCardRenderingEnabled
         let previousMenuRefresh = StatusItemController.menuRefreshEnabled
         StatusItemController.menuCardRenderingEnabled = false
@@ -428,8 +428,7 @@ struct StatusMenuSwitcherClickTests {
         let openAIRow = try #require(menu.items.first {
             ($0.representedObject as? String) == "overviewRow-openai"
         })
-        let submenu = try #require(openAIRow.submenu)
-        controller.openMenus[ObjectIdentifier(submenu)] = submenu
+        #expect(openAIRow.submenu == nil)
 
         var rebuildCount = 0
         controller._test_openMenuRebuildObserver = { _ in
@@ -447,7 +446,6 @@ struct StatusMenuSwitcherClickTests {
         #expect(settings.mergedMenuLastSelectedWasOverview == false)
         #expect(settings.selectedMenuProvider == .claude)
         #expect(rebuildCount == 1)
-        #expect(controller.openMenus[ObjectIdentifier(submenu)] == nil)
 
         let ids = menu.items.compactMap { $0.representedObject as? String }
         #expect(ids.contains("menuCard"))

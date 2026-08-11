@@ -388,7 +388,7 @@ struct MenuBarVisibilityWatcherTests {
     }
 
     @Test
-    func `startup recovery ignores detached live item without Tahoe proxy corroboration`() {
+    func `startup recovery retries detached live item without Tahoe proxy corroboration`() {
         let launchedAt = Date(timeIntervalSince1970: 1000)
         let managed = StatusItemVisibilitySnapshot(
             isVisible: true,
@@ -398,7 +398,7 @@ struct MenuBarVisibilityWatcherTests {
             isOnCurrentScreen: false,
             buttonWidth: 18)
 
-        #expect(!MenuBarVisibilityWatcher.shouldAttemptStartupRecovery(
+        #expect(MenuBarVisibilityWatcher.shouldAttemptStartupRecovery(
             appLaunchedAt: launchedAt,
             now: launchedAt.addingTimeInterval(2),
             snapshots: [managed],

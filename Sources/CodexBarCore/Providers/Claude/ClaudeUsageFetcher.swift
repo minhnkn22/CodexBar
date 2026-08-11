@@ -102,6 +102,14 @@ public enum ClaudeUsageError: LocalizedError, Sendable {
     }
 }
 
+enum ClaudeBackgroundDirectCLIError: LocalizedError, Sendable {
+    case blockedByRateLimitGate
+
+    var errorDescription: String? {
+        ClaudeCLIRateLimitGate.message
+    }
+}
+
 public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
     private static let sessionWindowMinutes = 5 * 60
     private static let weeklyWindowMinutes = 7 * 24 * 60
@@ -265,6 +273,7 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
         [String: String],
         Bool,
         Bool) async throws -> ClaudeOAuthCredentials)?
+    @TaskLocal static var promptAttemptScopeObserver: (@Sendable (UUID?) async -> Void)?
     @TaskLocal static var fetchOAuthUsageOverride: (@Sendable (
         String,
         Bool) async throws -> OAuthUsageResponse)?
@@ -457,14 +466,17 @@ public struct ClaudeUsageFetcher: ClaudeUsageFetching, Sendable {
                         ])
                 }
 
-                let refreshedRecord = try await ProviderRefreshRequestContext.withNewRequest {
-                    try await ClaudeUsageFetcher.loadOAuthCredentialRecord(
-                        environment: self.fetcher.environment,
-                        allowKeychainPrompt: retryAllowKeychainPrompt,
-                        respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown,
-                        safeCredentialSourcesOnly: self.fetcher.oauthSafeCredentialSourcesOnly,
-                        clearInvalidCache: !self.fetcher.preserveInvalidOAuthCache)
-                }
+                // Keep the retry epoch explicit. Adding another credential load in this block must
+                // thread the same ID rather than nesting ProviderRefreshRequestContext again; nested
+                // TaskLocal binding can corrupt task allocation on the macOS 14 backdeployment runtime.
+                let retryPromptAttemptScopeID = UUID()
+                let refreshedRecord = try await ClaudeUsageFetcher.loadOAuthCredentialRecord(
+                    environment: self.fetcher.environment,
+                    allowKeychainPrompt: retryAllowKeychainPrompt,
+                    respectKeychainPromptCooldown: promptPolicy.shouldRespectKeychainPromptCooldown,
+                    safeCredentialSourcesOnly: self.fetcher.oauthSafeCredentialSourcesOnly,
+                    clearInvalidCache: !self.fetcher.preserveInvalidOAuthCache,
+                    promptAttemptScopeID: retryPromptAttemptScopeID)
                 let refreshedCredentials = refreshedRecord.credentials
                 if ClaudeUsageFetcher.isClaudeOAuthFlowDebugEnabled {
                     ClaudeUsageFetcher.log.debug(
@@ -904,9 +916,11 @@ extension ClaudeUsageFetcher {
         allowKeychainPrompt: Bool,
         respectKeychainPromptCooldown: Bool,
         safeCredentialSourcesOnly: Bool,
-        clearInvalidCache: Bool) async throws -> ClaudeOAuthCredentialRecord
+        clearInvalidCache: Bool,
+        promptAttemptScopeID: UUID? = nil) async throws -> ClaudeOAuthCredentialRecord
     {
         #if DEBUG
+        await self.promptAttemptScopeObserver?(promptAttemptScopeID ?? ProviderRefreshRequestContext.id)
         if let override = loadOAuthCredentialsOverride {
             return try await ClaudeOAuthCredentialRecord(
                 credentials: override(environment, allowKeychainPrompt, respectKeychainPromptCooldown),
@@ -921,7 +935,8 @@ extension ClaudeUsageFetcher {
             allowClaudeKeychainRepairWithoutPrompt: !safeCredentialSourcesOnly,
             // Explicit OAuth is an authority boundary. Retain malformed safe credentials so a
             // retry remains terminal instead of turning corruption into ambient CLI fallback.
-            clearInvalidCache: clearInvalidCache)
+            clearInvalidCache: clearInvalidCache,
+            promptAttemptScopeID: promptAttemptScopeID)
     }
 
     private static func fetchOAuthUsage(
@@ -1278,6 +1293,26 @@ extension ClaudeUsageFetcher {
         let snap = try await probe.fetch()
 
         return try Self.makeSnapshot(from: snap)
+    }
+
+    /// Runs Claude's usage-only command without a PTY, auth preflight, or writable stdin.
+    /// Background Auto uses this path so an expired OAuth cache can recover without launching
+    /// an interactive Claude session that may open browser or Keychain UI.
+    func loadViaBackgroundDirectCLI(timeout: TimeInterval = 12) async throws -> ClaudeUsageSnapshot {
+        if ClaudeCLIRateLimitGate.blockedUntil() != nil {
+            throw ClaudeBackgroundDirectCLIError.blockedByRateLimitGate
+        }
+
+        do {
+            let snapshot = try await self.loadViaDirectCLI(timeout: timeout)
+            ClaudeCLIRateLimitGate.recordSuccess()
+            return snapshot
+        } catch {
+            if ClaudeUsageFetcher.isCLIRateLimitError(error) {
+                ClaudeCLIRateLimitGate.recordRateLimit()
+            }
+            throw error
+        }
     }
 
     private func loadViaDirectCLI(timeout: TimeInterval) async throws -> ClaudeUsageSnapshot {

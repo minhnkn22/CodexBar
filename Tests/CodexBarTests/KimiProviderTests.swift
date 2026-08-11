@@ -50,7 +50,8 @@ private func writeKimiCodeCredential(
     home: URL,
     accessToken: String,
     refreshToken: String = "refresh",
-    expiresAt: Any?) throws -> URL
+    expiresAt: Any?,
+    expiresIn: Any? = nil) throws -> URL
 {
     let credentials = home.appendingPathComponent("credentials", isDirectory: true)
     try FileManager.default.createDirectory(at: credentials, withIntermediateDirectories: true)
@@ -60,6 +61,9 @@ private func writeKimiCodeCredential(
     ]
     if let expiresAt {
         payload["expires_at"] = expiresAt
+    }
+    if let expiresIn {
+        payload["expires_in"] = expiresIn
     }
     let url = credentials.appendingPathComponent("kimi-code.json")
     try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]).write(to: url)
@@ -95,6 +99,54 @@ private actor KimiOrderedCredentialTransport: ProviderHTTPTransport {
             httpVersion: nil,
             headerFields: ["Content-Type": "application/json"]))
         return (Data(body.utf8), response)
+    }
+}
+
+private actor KimiRefreshingCredentialTransport: ProviderHTTPTransport {
+    private var capturedRequests: [URLRequest] = []
+
+    func requests() -> [URLRequest] {
+        self.capturedRequests
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        self.capturedRequests.append(request)
+        let url = try #require(request.url)
+        let statusCode: Int
+        let body: String
+        switch (url.host, url.path) {
+        case ("api.kimi.com", "/coding/v1/usages"):
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access-new")
+            statusCode = 200
+            body = #"{"usage":{"limit":"100","used":"25","remaining":"75"},"limits":[]}"#
+        default:
+            throw URLError(.badURL)
+        }
+        let response = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]))
+        return (Data(body.utf8), response)
+    }
+}
+
+private actor KimiCredentialRefreshRecorder {
+    private var refreshCount = 0
+
+    func count() -> Int {
+        self.refreshCount
+    }
+
+    func refresh(home: URL) async throws {
+        self.refreshCount += 1
+        try await Task.sleep(for: .milliseconds(100))
+        _ = try writeKimiCodeCredential(
+            home: home,
+            accessToken: "access-new",
+            refreshToken: "refresh-new",
+            expiresAt: Date().addingTimeInterval(900).timeIntervalSince1970,
+            expiresIn: 900)
     }
 }
 
@@ -285,6 +337,45 @@ struct KimiSettingsReaderTests {
 
 struct KimiAPIFetchStrategyTests {
     @Test
+    func `CLI credential refresh survives the fifteen minute access token lifetime`() async throws {
+        let home = try makeTemporaryKimiCodeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let credentialURL = try writeKimiCodeCredential(
+            home: home,
+            accessToken: "access-old",
+            refreshToken: "refresh-old",
+            expiresAt: Date().addingTimeInterval(-60).timeIntervalSince1970,
+            expiresIn: 900)
+        let transport = KimiRefreshingCredentialTransport()
+        let refreshRecorder = KimiCredentialRefreshRecorder()
+        let strategy = KimiCLICredentialFetchStrategy(
+            transport: transport,
+            refreshCredential: { _ in try await refreshRecorder.refresh(home: home) })
+        let context = makeKimiFetchContext(
+            sourceMode: .auto,
+            environment: ["KIMI_CODE_HOME": home.path])
+
+        async let firstFetch = strategy.fetch(context)
+        async let secondFetch = strategy.fetch(context)
+        let (first, second) = try await (firstFetch, secondFetch)
+
+        #expect(first.sourceLabel == "Kimi Code CLI")
+        #expect(first.usage.primary?.usedPercent == 25)
+        #expect(second.usage.primary?.usedPercent == 25)
+        let stored = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: credentialURL)) as? [String: Any])
+        #expect(stored["access_token"] as? String == "access-new")
+        #expect(stored["refresh_token"] as? String == "refresh-new")
+        #expect((stored["expires_in"] as? NSNumber)?.doubleValue == 900)
+        #expect(await refreshRecorder.count() == 1)
+        let requests = await transport.requests()
+        #expect(requests.map { $0.url?.path } == [
+            "/coding/v1/usages",
+            "/coding/v1/usages",
+        ])
+    }
+
+    @Test
     func `cookie source off disables every browser import path`() {
         let offContext = makeKimiFetchContext(
             sourceMode: .auto,
@@ -373,7 +464,8 @@ struct KimiAPIFetchStrategyTests {
             home: home,
             accessToken: "expired",
             expiresAt: Date().addingTimeInterval(-60).timeIntervalSince1970)
-        let strategy = KimiCLICredentialFetchStrategy()
+        let strategy = KimiCLICredentialFetchStrategy(
+            refreshCredential: { _ in throw KimiAPIError.expiredCodeCredential })
         let context = makeKimiFetchContext(
             sourceMode: .auto,
             environment: ["KIMI_CODE_HOME": home.path])
@@ -1409,7 +1501,7 @@ struct KimiAPIErrorTests {
         #expect(KimiAPIError.invalidToken.errorDescription?.contains("invalid") == true)
         #expect(KimiAPIError.missingAPIKey.errorDescription?.contains("Settings > Providers > Kimi") == true)
         #expect(KimiAPIError.missingAPIKey.errorDescription?.contains("KIMI_CODE_API_KEY") == true)
-        #expect(KimiAPIError.expiredCodeCredential.errorDescription?.contains("does not refresh") == true)
+        #expect(KimiAPIError.expiredCodeCredential.errorDescription?.contains("could not be refreshed") == true)
         #expect(KimiAPIError.invalidCodeCredential.errorDescription?.contains("Sign in again") == true)
         #expect(KimiAPIError.invalidAPIKey.errorDescription?.contains("API key") == true)
         #expect(KimiAPIError.invalidRequest("Bad request").errorDescription?.contains("Bad request") == true)

@@ -123,6 +123,20 @@ enum MenuBarVisibilityWatcher {
         }
     }
 
+    /// A visible status item with a live button/window but no screen is not usable. Tahoe can park
+    /// this item off-screen without publishing the Control Center proxy window that older builds
+    /// used to corroborate recovery, so startup must treat the detached state as recoverable on its
+    /// own. Items attached to another screen still report `hasScreen == true` and remain untouched.
+    static func hasAnyDetachedVisibleSnapshot(_ snapshots: [StatusItemVisibilitySnapshot]) -> Bool {
+        snapshots.contains { snapshot in
+            snapshot.isVisible
+                && snapshot.hasButton
+                && snapshot.hasWindow
+                && !snapshot.hasScreen
+                && snapshot.buttonWidth > 0
+        }
+    }
+
     static func hasAnyStartupRecoveryCandidate(
         snapshots: [StatusItemVisibilitySnapshot],
         evidence: [StatusItemStartupVisibilityEvidence] = [],
@@ -135,6 +149,11 @@ enum MenuBarVisibilityWatcher {
         }
         if detectTahoeBlockedStatusItem,
            self.hasAnyTahoeHiddenNoProxyCandidate(evidence: evidence, windowSnapshots: windowSnapshots)
+        {
+            return true
+        }
+        if detectTahoeBlockedStatusItem,
+           self.hasAnyDetachedVisibleSnapshot(snapshots)
         {
             return true
         }

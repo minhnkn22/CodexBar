@@ -183,14 +183,18 @@ struct KimiCLICredentialFetchStrategy: ProviderFetchStrategy {
     let kind: ProviderFetchKind = .oauth
     private let transport: any ProviderHTTPTransport
     private let resolveWebAuthToken: @Sendable (ProviderFetchContext) -> String?
+    private let refreshCredential: KimiCodeCredentialRefreshOperation
 
     init(
         transport: any ProviderHTTPTransport = ProviderHTTPClient.shared,
         resolveWebAuthToken: @escaping @Sendable (ProviderFetchContext) -> String? =
-            KimiWebEnrichmentTokenResolver.resolve)
+            KimiWebEnrichmentTokenResolver.resolve,
+        refreshCredential: @escaping KimiCodeCredentialRefreshOperation =
+            KimiSettingsReader.refreshUsingOfficialKimiCLI)
     {
         self.transport = transport
         self.resolveWebAuthToken = resolveWebAuthToken
+        self.refreshCredential = refreshCredential
     }
 
     func isAvailable(_ context: ProviderFetchContext) async -> Bool {
@@ -199,7 +203,10 @@ struct KimiCLICredentialFetchStrategy: ProviderFetchStrategy {
     }
 
     func fetch(_ context: ProviderFetchContext) async throws -> ProviderFetchResult {
-        guard let token = KimiSettingsReader.kimiCodeAccessToken(environment: context.env) else {
+        guard let token = try await KimiSettingsReader.refreshedKimiCodeAccessToken(
+            environment: context.env,
+            refreshOperation: self.refreshCredential)
+        else {
             throw KimiAPIError.expiredCodeCredential
         }
         let baseURL = try KimiSettingsReader.codeAPIBaseURL(environment: context.env)

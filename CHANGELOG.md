@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Order compact Overview quota meters by their reported cadence: genuine weekly usage first, then session usage,
+  then any additional limits. Detailed provider cards and non-cadence rows such as balances, bonus credits, and
+  model-specific quotas preserve their native provider order.
+
+### Fixed
+
+- Claude: keep Auto usage available after app restarts and OAuth expiry by running one bounded, stdin-closed
+  `claude /usage` fallback during background refresh. Auth-status, version, and interactive PTY probes remain behind
+  the existing Keychain prompt gates, and a failed direct attempt is suppressed for that account until restart or a
+  successful foreground refresh. Cancellation, rate-limit cooldown skips, and live rate-limit responses preserve the
+  next scheduled attempt.
+
+## 0.48.1-fork — 2026-08-09
+
+### Changed
+- Overview: preserve CodexBar's native theme while replacing rich dashboard cards with compact per-provider quota
+  meters; spend, token, project, session, storage, and diagnostic detail remains in provider tabs. Live refreshes use
+  the refreshed model for row sizing, and multi-plan Doubao summaries retain an Agent Plan meter within the three-row
+  cap.
+
+### Fixed
+- App: hold a process-scoped advisory lock and exit later direct-binary launches before they create duplicate menu-bar
+  items; also detect active pre-guard builds during upgrades.
+- App: recover a visible menu-bar item that Tahoe parks off-screen without publishing a Control Center proxy
+  window, so the app does not remain running but invisible after a macOS update or display-state change.
+- CI: run the Tahoe menu-bar visibility recovery regression suite in the fork packaging workflow.
+- Claude: avoid a nested refresh TaskLocal binding during post-delegation credential reloads, preventing a Sonoma 14.4
+  `swift_task_dealloc` abort while keeping stale prompt failures out of the fresh retry epoch.
+
 ## 0.48.1 — 2026-08-07
 
 ### Fixed

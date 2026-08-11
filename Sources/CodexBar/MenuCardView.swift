@@ -35,6 +35,7 @@ struct UsageMenuCardView: View {
             let title: String
             let percent: Double
             let percentStyle: PercentStyle
+            let windowMinutes: Int?
             let statusText: String?
             let resetText: String?
             let detailText: String?
@@ -52,6 +53,7 @@ struct UsageMenuCardView: View {
                 title: String,
                 percent: Double,
                 percentStyle: PercentStyle,
+                windowMinutes: Int? = nil,
                 statusText: String? = nil,
                 resetText: String?,
                 detailText: String?,
@@ -68,6 +70,7 @@ struct UsageMenuCardView: View {
                 self.title = title
                 self.percent = percent
                 self.percentStyle = percentStyle
+                self.windowMinutes = windowMinutes
                 self.statusText = statusText
                 self.resetText = resetText
                 self.detailText = detailText
@@ -1258,6 +1261,7 @@ extension UsageMenuCardView.Model {
                 title: labels.tertiary,
                 percent: Self.clamped(input.usageBarsShowUsed ? opus.usedPercent : opus.remainingPercent),
                 percentStyle: percentStyle,
+                windowMinutes: opus.windowMinutes,
                 resetText: opusResetText,
                 detailText: tertiaryDetailText,
                 detailLeftText: tertiaryPaceDetail?.leftLabel,
@@ -1284,13 +1288,13 @@ extension UsageMenuCardView.Model {
                 return (primarySecondaryOrder[lhs.id] ?? Int.max) < (primarySecondaryOrder[rhs.id] ?? Int.max)
             }
         }
-
         if let codexProjection = input.codexProjection,
            codexProjection.supplementalMetrics.contains(.codeReview),
            let remaining = codexProjection.remainingPercent(for: .codeReview)
         {
             let percent = input.usageBarsShowUsed ? (100 - remaining) : remaining
-            let resetText = codexProjection.limitWindow(for: .codeReview).flatMap {
+            let codeReviewWindow = codexProjection.limitWindow(for: .codeReview)
+            let resetText = codeReviewWindow.flatMap {
                 Self.resetText(for: $0, style: input.resetTimeDisplayStyle, now: input.now)
             }
             metrics.append(Metric(
@@ -1298,6 +1302,7 @@ extension UsageMenuCardView.Model {
                 title: L("Code review"),
                 percent: Self.clamped(percent),
                 percentStyle: percentStyle,
+                windowMinutes: codeReviewWindow?.windowMinutes,
                 resetText: resetText,
                 detailText: nil,
                 detailLeftText: nil,
@@ -1331,6 +1336,7 @@ extension UsageMenuCardView.Model {
             percent: Self.clamped(
                 input.usageBarsShowUsed ? primary.usedPercent : primary.remainingPercent),
             percentStyle: percentStyle,
+            windowMinutes: primary.windowMinutes,
             statusText: presentation.statusText,
             resetText: presentation.resetText,
             detailText: presentation.detailText,
@@ -1459,6 +1465,7 @@ extension UsageMenuCardView.Model {
             title: title ?? L(input.metadata.weeklyLabel),
             percent: Self.clamped(input.usageBarsShowUsed ? weekly.usedPercent : weekly.remainingPercent),
             percentStyle: percentStyle,
+            windowMinutes: weekly.windowMinutes,
             statusText: nil,
             resetText: weeklyResetText,
             detailText: weeklyDetailText,

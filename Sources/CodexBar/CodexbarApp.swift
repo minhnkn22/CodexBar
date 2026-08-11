@@ -1,5 +1,6 @@
 import AppKit
 import CodexBarCore
+import Darwin
 import KeyboardShortcuts
 import Observation
 import QuartzCore
@@ -17,11 +18,106 @@ enum CodexBarLaunchMode: Equatable {
     }
 }
 
+enum CodexBarSingleInstanceGuard {
+    @MainActor private static var heldLock: CodexBarInstanceLock?
+
+    static func shouldStart(
+        lockResult: CodexBarInstanceLock.AcquireResult,
+        hasOtherRunningApplication: Bool) -> Bool
+    {
+        guard !hasOtherRunningApplication else { return false }
+        return lockResult != .contended
+    }
+
+    @MainActor
+    static func shouldStart() -> Bool {
+        if ProcessInfo.processInfo.environment["CODEXBAR_ALLOW_MULTIPLE_INSTANCES"] == "1" {
+            return true
+        }
+
+        let identifier = Bundle.main.bundleIdentifier ?? "com.steipete.codexbar"
+        let lockURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(identifier).instance.lock", isDirectory: false)
+        let lock = CodexBarInstanceLock()
+        let lockResult = lock.acquire(at: lockURL)
+        if case let .unavailable(errorCode) = lockResult {
+            self.writeDiagnostic(
+                "CodexBar single-instance lock unavailable (errno \(errorCode)); continuing without it.\n")
+        }
+        let currentProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        let otherRunningApplication = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .first {
+                $0.processIdentifier != currentProcessIdentifier &&
+                    self.isProcessAlive($0.processIdentifier)
+            }
+        guard self.shouldStart(
+            lockResult: lockResult,
+            hasOtherRunningApplication: otherRunningApplication != nil)
+        else {
+            lock.release()
+            self.writeDiagnostic("CodexBar is already running; exiting duplicate instance.\n")
+            return false
+        }
+        self.heldLock = lock
+        return true
+    }
+
+    private static func writeDiagnostic(_ message: String) {
+        try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+    }
+
+    private static func isProcessAlive(_ processIdentifier: pid_t) -> Bool {
+        guard processIdentifier > 0 else { return false }
+        if kill(processIdentifier, 0) == 0 { return true }
+        return errno == EPERM
+    }
+}
+
+final class CodexBarInstanceLock {
+    enum AcquireResult: Equatable {
+        case acquired
+        case contended
+        case unavailable(Int32)
+    }
+
+    private var fileDescriptor: Int32 = -1
+
+    func acquire(at url: URL) -> AcquireResult {
+        guard self.fileDescriptor < 0 else { return .acquired }
+        let descriptor = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else { return .unavailable(errno) }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            let errorCode = errno
+            close(descriptor)
+            return errorCode == EWOULDBLOCK ? .contended : .unavailable(errorCode)
+        }
+        self.fileDescriptor = descriptor
+        return .acquired
+    }
+
+    func release() {
+        guard self.fileDescriptor >= 0 else { return }
+        flock(self.fileDescriptor, LOCK_UN)
+        close(self.fileDescriptor)
+        self.fileDescriptor = -1
+    }
+
+    deinit {
+        self.release()
+    }
+}
+
 @main
 enum CodexBarEntryPoint {
     @MainActor
     static func main() {
         guard CodexBarLaunchMode.resolve(arguments: CommandLine.arguments) == .application else {
+            return
+        }
+        guard CodexBarSingleInstanceGuard.shouldStart() else {
             return
         }
         CodexBarApp.main()

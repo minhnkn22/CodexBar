@@ -5,7 +5,7 @@ import Testing
 
 extension StatusMenuTests {
     @Test
-    func `overview rows expose provider detail submenus`() throws {
+    func `compact overview omits provider cost submenus`() throws {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()
         settings.statusChecksEnabled = false
@@ -59,13 +59,11 @@ extension StatusMenuTests {
         let openAIRow = try #require(menu.items.first {
             ($0.representedObject as? String) == "overviewRow-openai"
         })
-        #expect(openAIRow.submenu?.items.contains {
-            ($0.representedObject as? String) == StatusItemController.costHistoryChartID
-        } == true)
+        #expect(openAIRow.submenu == nil)
     }
 
     @Test
-    func `overview row shows plan usage not cost history for opencodego`() throws {
+    func `compact overview omits plan and cost submenus for opencodego`() throws {
         self.disableMenuCardsForTesting()
         let settings = self.makeSettings()
         settings.statusChecksEnabled = false
@@ -125,12 +123,7 @@ extension StatusMenuTests {
         let opencodegoRow = try #require(menu.items.first {
             ($0.representedObject as? String) == "overviewRow-opencodego"
         })
-        #expect(opencodegoRow.submenu?.items.contains {
-            ($0.representedObject as? String) == StatusItemController.usageHistoryChartID
-        } == true)
-        #expect(opencodegoRow.submenu?.items.contains {
-            ($0.representedObject as? String) == StatusItemController.costHistoryChartID
-        } == false)
+        #expect(opencodegoRow.submenu == nil)
     }
 
     @Test

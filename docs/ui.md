@@ -12,7 +12,9 @@ read_when:
 - Merge Icons toggle combines providers into one status item with a switcher.
 - Provider status items use stable autosave names and are reused across provider toggles so macOS can preserve icon
   positions.
-- When Overview has selected providers, the switcher includes an Overview tab that renders up to 6 provider rows.
+- When Overview has selected providers, the switcher includes an Overview tab that renders up to 6 compact provider
+  rows. Each row shows up to three primary quota meters and reset times while leaving additional windows, charts, and
+  other detail in the provider tab.
 - Overview row order follows provider order; selecting a row jumps to that provider detail card.
 - The global open-menu keyboard shortcut toggles the currently tracked menu closed before opening a new one.
 - Display → Menu Bar → Layout provides presets plus a token editor. Tokens can be clicked to append, dragged from the
@@ -64,8 +66,9 @@ model-generic token label while the rendered menu-bar prefix and accessibility l
 - Codex credits can add a separate “Buy Credits…” menu action.
 - Codex OpenAI web extras: code review remaining and usage breakdown render when dashboard data is attached.
 - Token accounts: optional account switcher bar or stacked account cards (up to 6) when multiple manual tokens exist.
-- Provider storage usage is opt-in from Advanced settings. When enabled, overview rows and provider detail cards can show
-  local provider-owned storage totals, with a submenu for path breakdowns and copyable paths.
+- Provider storage usage is opt-in from Advanced settings. When enabled, provider detail cards can show local
+  provider-owned storage totals with a submenu for path breakdowns and copyable paths. Compact Overview rows omit
+  storage.
 
 ## Pace tracking
 

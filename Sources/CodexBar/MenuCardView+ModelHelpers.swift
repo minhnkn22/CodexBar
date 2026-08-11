@@ -204,6 +204,7 @@ extension UsageMenuCardView.Model {
                 title: PersonalInfoRedactor.redactEmails(in: metric.title, isEnabled: true) ?? metric.title,
                 percent: metric.percent,
                 percentStyle: metric.percentStyle,
+                windowMinutes: metric.windowMinutes,
                 statusText: PersonalInfoRedactor.redactEmails(in: metric.statusText, isEnabled: true),
                 resetText: PersonalInfoRedactor.redactEmails(in: metric.resetText, isEnabled: true),
                 detailText: Self.redactedMetricDetail(
@@ -806,6 +807,7 @@ extension UsageMenuCardView.Model {
                         ? namedWindow.window.usedPercent
                         : namedWindow.window.remainingPercent),
                 percentStyle: percentStyle,
+                windowMinutes: namedWindow.window.windowMinutes,
                 statusText: statusText,
                 resetText: usageKnown ? resetText : nil,
                 detailText: usageKnown ? detailText : nil,
@@ -971,6 +973,7 @@ extension UsageMenuCardView.Model {
             title: title,
             percent: Self.clamped(percent),
             percentStyle: percentStyle,
+            windowMinutes: window.windowMinutes,
             resetText: Self.resetText(for: window, style: input.resetTimeDisplayStyle, now: input.now),
             detailText: nil,
             detailLeftText: paceDetail?.leftLabel,

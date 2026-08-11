@@ -51,9 +51,12 @@ If you are signed in with the official Kimi Code CLI, Auto mode can reuse its fr
 including the local hostname, OS details, and stable `~/.kimi-code/device_id` value. If that device ID is
 missing, CodexBar creates it with private file permissions to match the official client.
 
-CodexBar treats CLI-owned authentication as read-only: it never uses the refresh token and never rewrites
-the credential file. When the access token expires, sign in again with Kimi Code CLI or configure an API
-key. Set `KIMI_CODE_HOME` only when the official CLI uses a non-default home directory.
+Kimi Code access tokens last 15 minutes. Before a token enters the official client's refresh window,
+CodexBar runs the installed `kimi login` command with a bounded timeout. The official CLI then owns the
+refresh-token exchange, cross-process locking, rotation, and credential-file write; CodexBar only rereads
+the resulting access token. If the CLI cannot refresh noninteractively, Auto mode can still fall back to
+browser authentication, and the user can run `kimi login` manually. Set `KIMI_CODE_HOME` only when the
+official CLI uses a non-default home directory.
 
 Custom `KIMI_CODE_BASE_URL`, `KIMI_CODE_OAUTH_HOST`, and `KIMI_OAUTH_HOST` values disable CLI credential
 reuse; use an explicit API key for endpoint-override testing.

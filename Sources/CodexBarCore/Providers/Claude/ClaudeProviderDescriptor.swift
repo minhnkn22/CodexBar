@@ -967,10 +967,9 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
 
         let isBackgroundAutoRefresh = isBackgroundAppRefresh && context.sourceMode == .auto
         if isBackgroundAutoRefresh {
-            // Every Claude child process is opaque to CodexBar's no-UI Keychain controls, including
-            // `claude auth status`. Background Auto therefore reuses only availability established by a
-            // successful user-initiated CLI fetch in this process. The narrow exception is the owner usage
-            // fetch when Keychain access is explicitly disabled; version/auth children retain the global gate.
+            // Background Auto never runs auth status or the interactive PTY. It gets a bounded, stdin-closed
+            // `/usage` attempt for the active profile; a failure revokes later timer retries until restart or a
+            // successful foreground fetch. Version/auth children retain the stricter opaque-child gate below.
             guard let binary = ClaudeCLIResolver.resolvedBinaryPath(environment: context.env) else { return false }
             return ClaudeCLIBackgroundAvailability.allowsBackgroundAutoUsageFetch(
                 binary: binary,
@@ -1001,19 +1000,30 @@ struct ClaudeCLIFetchStrategy: ProviderFetchStrategy {
         let backgroundAvailabilityMarker = binary.flatMap {
             ClaudeCLIBackgroundAvailability.captureMarker(binary: $0, environment: context.env)
         }
+        let isBackgroundAutoRefresh = context.runtime == .app
+            && context.sourceMode == .auto
+            && ProviderInteractionContext.current == .background
         let usage: ClaudeUsageSnapshot
         do {
-            usage = try await fetcher.loadLatestUsage(model: "sonnet")
+            usage = if isBackgroundAutoRefresh {
+                try await fetcher.loadViaBackgroundDirectCLI()
+            } else {
+                try await fetcher.loadLatestUsage(model: "sonnet")
+            }
         } catch {
+            if error is CancellationError || Task.isCancelled || error is ClaudeBackgroundDirectCLIError
+                || ClaudeUsageFetcher.isCLIRateLimitError(error)
+            {
+                // Cancellation is not a provider failure. The typed background error means the shared rate-limit
+                // gate prevented process launch; a live rate-limit response also needs the next post-cooldown retry.
+                throw error
+            }
             if let backgroundAvailabilityMarker {
                 ClaudeCLIBackgroundAvailability.revoke(backgroundAvailabilityMarker)
             }
             throw error
         }
-        if context.runtime == .app,
-           ProviderInteractionContext.current == .userInitiated,
-           let backgroundAvailabilityMarker
-        {
+        if let backgroundAvailabilityMarker {
             ClaudeCLIBackgroundAvailability.establish(backgroundAvailabilityMarker)
         }
         return self.makeResult(
@@ -1088,11 +1098,8 @@ enum ClaudeCLIBackgroundAvailability {
 
     static func allowsBackgroundAutoUsageFetch(binary: String, environment: [String: String]) -> Bool {
         guard ProviderInteractionContext.current == .background else { return true }
-        guard KeychainAccessGate.isExplicitlyDisabled else {
-            return self.allowsOpaqueChildExecution(binary: binary, environment: environment)
-        }
-        // Disable Keychain explicitly permits one owner-CLI usage attempt on a cold profile. A failed attempt
-        // records revocation below, preventing each background timer tick from retrying until a foreground success.
+        // The caller guarantees the prompt-free direct `/usage` path. A failed attempt records revocation,
+        // preventing each background timer tick from relaunching the CLI until restart or foreground success.
         guard let marker = self.captureMarker(binary: binary, environment: environment) else { return false }
         return !self.store.isRevoked(marker)
     }
